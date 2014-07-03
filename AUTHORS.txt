@@ -1,0 +1,8 @@
+(* OASIS_START *)
+(* DO NOT EDIT (digest: 94520b26845db7eee22830e1e34a87cc) *)
+
+Authors of simplist-test:
+
+* Paul Barbenne
+
+(* OASIS_STOP *)
