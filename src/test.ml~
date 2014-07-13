@@ -49,6 +49,6 @@ match resultat2 with
 let resultat3 = evaluer memoire
   (Application [ Implicite "factorielle" ; Valeur (Nombre (Nombre.nombre_of_string "3"))]) ;;
 match resultat3 with
-| Nombre k when not (Nombre.evalb (Nombre.substract k (Nombre.nombre_of_string "6"))) -> print_endline "Encore un succès ! "
+| Nombre k when Nombre.evalb (Nombre.substract k (Nombre.nombre_of_string "6")) -> print_endline "Encore un succès ! "
 | _ -> print_endline "Échec..."
 ;;
