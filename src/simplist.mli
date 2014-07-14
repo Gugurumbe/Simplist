@@ -14,4 +14,4 @@ val add : memoire -> string -> valeur -> unit
 (** par la nouvelle **)
 val rem : memoire -> string -> unit
 val mem : memoire -> string -> bool
-val evaluer : memoire -> instruction -> valeur
+val evaluer : memoire -> instruction list -> valeur

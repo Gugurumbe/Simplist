@@ -52,7 +52,7 @@ let lier_args noms valeurs memoire =
   in
   aux (noms, valeurs)
 ;;
-let rec evaluer mem = function
+let rec evaluer_single mem = function
   | Valeur v -> v
   | Implicite str when Hashtbl.mem mem str -> Hashtbl.find mem str
   | Implicite str -> failwith (str^" unbound.")
@@ -60,11 +60,11 @@ let rec evaluer mem = function
     match liste with
     | [] -> Liste []
     | (Valeur _) :: _ -> failwith ("Syntax error.")
-    | [Application truc] -> evaluer mem (Application truc)
+    | [Application truc] -> evaluer_single mem (Application truc)
     | (Application effet1) :: reste ->
       begin
-	match evaluer mem (Application effet1) with
-	| Liste [] -> evaluer mem (Application reste)
+	match evaluer_single mem (Application effet1) with
+	| Liste [] -> evaluer_single mem (Application reste)
 	| _ -> failwith ("Should have type unit.")
       end
     | (Implicite a) :: b ->
@@ -75,21 +75,21 @@ let rec evaluer mem = function
       | _ ->
 	if Hashtbl.mem mem a  then
 	  match Hashtbl.find mem a with
-	  | Fonction f -> f (List.map (evaluer mem) b)
+	  | Fonction f -> f (List.map (evaluer_single mem) b)
 	  | _ -> failwith (a^" is not a function.")
 	else failwith (a^" : unbound function.")
 and evaluer_if mem = function
-  | [Implicite "if" ; test ; effet ; _] when evalb (evaluer mem test) -> 
-    evaluer mem effet
+  | [Implicite "if" ; test ; effet ; _] when evalb (evaluer_single mem test) -> 
+    evaluer_single mem effet
   | [Implicite "if" ; _ ; _ ; effet] -> 
-    evaluer mem effet
+    evaluer_single mem effet
   | _ -> failwith ("if : syntax error.")
 and evaluer_cond mem = function
   | (Implicite "cond") :: paires ->
     let fonction_iteree (fait, resultat) = function
       | Application [test ; cas] 
-	  when not (fait) && evalb (evaluer mem test) 
-	    -> (true, evaluer mem cas)
+	  when not (fait) && evalb (evaluer_single mem test) 
+	    -> (true, evaluer_single mem cas)
       | Application _ when not (fait) -> (false, Liste [])
       | Application _ -> (true, resultat)
       | _ -> failwith "cond : syntax error"
@@ -111,7 +111,7 @@ and evaluer_defun mem = function
 	    if Hashtbl.mem memoire_locale nom 
 	    then Hashtbl.remove memoire_locale nom ;
 	    Hashtbl.add memoire_locale nom (Fonction (fonction)) ;
-	    evaluer memoire_locale resultat
+	    evaluer_single memoire_locale resultat
 	  with
 	  | Failure str -> failwith ("Call of "^nom^" : "^str)
 	in
@@ -121,5 +121,16 @@ and evaluer_defun mem = function
       with
       | Failure str -> failwith ("Definition of "^nom^" : "^str)
     end
+  | (Implicite "defun") :: (Implicite nom) :: (Application liste) :: resultat :: reste ->
+    failwith ("defun : args ("^(string_of_int (List.length reste))^")")
   | _ -> failwith "defun : syntax error"
+;;
+
+let rec evaluer mem = function
+  | [] -> Liste []
+  | [seule] -> evaluer_single mem seule
+  | unitaire :: reste ->
+    match evaluer_single mem unitaire with
+    | Liste [] -> evaluer mem reste
+    | _ -> failwith "Vous évaluez plusieurs choses. Seule la dernière doit renvoyer une valeur."
 ;;
