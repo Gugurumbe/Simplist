@@ -7,7 +7,7 @@ License:     LGPL-2.1 with OCaml linking exception
 Plugins:     META (0.4), StdFiles (0.4)
 
 Executable test
-  Path:           src
-  BuildTools:     ocamlbuild
-  MainIs:         test.ml
-  CompiledObject: best  
+  Path:            src
+  BuildTools:      ocamlbuild
+  MainIs:          test.ml
+  CompiledObject:  best  
