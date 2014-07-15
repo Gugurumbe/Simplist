@@ -32,12 +32,25 @@ type mot =
 (* La distinction sert à savoir si "(" est la fonction "(" définie par *)
 (* l'utilisateur (!) via "\(" ou une parenthèse ouvrante *)
 | Mot_cite of string
-let lire_mot chaine debut =
+let lire_mot (chaine : string) (debut : int) : mot * int =
   let rec aux i guillemets =
     (* Renvoie le triplet (liste_des_lettres, indice_fin, 
        le_mot_est_il_echappe) *)
     if i < String.length chaine then
       match chaine.[i] with
+      | ';' when i + 1 < String.length chaine && chaine.[i + 1] = ';' ->
+	(* ;; ceci est un commentaire *)
+	([], i, false)
+      | '\\' when i + 1 < String.length chaine && guillemets ->
+	(* Lorsqu'on est entre guillemets, \n veut dire '\n' et pas 'n' *)
+	begin
+	  let (fin, i_fin, _) = aux (i + 2) guillemets in
+	  match chaine.[i + 1] with
+	  | '\\' -> ('\\' :: fin, i_fin, true)
+	  | 'n' -> ('\n' :: fin, i_fin, true)
+	  | 't' -> ('\t' :: fin, i_fin, true)
+	  | autre -> (autre :: fin, i_fin, true)
+	end
       | '\\' when i + 1 < String.length chaine ->
 	let (fin, i_fin, _) = aux (i + 2) guillemets in
 	(chaine.[i + 1] :: fin, i_fin, true)
@@ -50,18 +63,27 @@ let lire_mot chaine debut =
 	(* On s'arrête de lire si on n'est pas entre guillemets *)
       | '\"' ->
 	([], i, false)
+      | '\n' 
+      | '\t' ->
+	([], i, false)
+      (* C'est bizarre de mettre des sauts de ligne entre guillemets, non ? *)
       | c ->
 	let (fin, i_fin, echappe) = aux (i + 1) guillemets in
 	(c :: fin, i_fin, echappe)
     else ([], i, true)
   in
-  let rec avancer i =
+  let rec avancer (i : int) (commentaire : bool) : int =
     (* Renvoie l'indice de l'initiale du mot suivant i *)
     if i < String.length chaine then
       match chaine.[i] with
+      | ';' when i + 1 < String.length chaine && chaine.[i + 1] = ';' ->
+	(* on s'arrête au prochain \n *)
+	avancer (i + 2) true
       | ' '
       | '\n'
-      | '\t' -> avancer (i + 1)
+      | '\t' when not commentaire -> avancer (i + 1) false
+      | '\n' when commentaire -> i
+      | _ when commentaire -> avancer (i + 1) true
       | _ -> i
     else i
   in
@@ -71,18 +93,21 @@ let lire_mot chaine debut =
     | '('
     | ')'
     |'\'' ->
-      (Mot_regulier (String.make 1 chaine.[debut]), avancer (debut + 1))
+      (Mot_regulier (String.make 1 chaine.[debut]), avancer (debut + 1) false)
     |'\"' ->
       let (lettres, i_fin, _) = aux (debut + 1) true in
-      (Mot_cite (String.concat "" (List.map (String.make 1) lettres)),
-       avancer (i_fin + 1)) (* + 1 : sinon on tombe sur le guillemet fermant *)
+      if i_fin < String.length chaine && chaine.[i_fin] = '\"' then
+	(Mot_cite (String.concat "" (List.map (String.make 1) lettres)),
+	 avancer (i_fin + 1) false) 
+      else failwith "Guillemet interrompu."
+    (* + 1 : sinon on tombe sur le guillemet fermant *)
     | _ ->
       let (lettres, i_fin, echappe) = aux debut false in
       if echappe then
 	(Mot_echappe (String.concat "" (List.map (String.make 1) lettres)),
-	 avancer i_fin)
+	 avancer i_fin false)
       else (Mot_regulier (String.concat "" (List.map (String.make 1) lettres)),
-	 avancer i_fin)
+	 avancer i_fin false)
   else (Mot_regulier "", debut)
 ;;
 (* Et maintenant, on découpe le programme en mots...*)
