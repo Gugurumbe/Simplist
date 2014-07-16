@@ -128,7 +128,7 @@ let decouper chaine =
 (* On remplace le raccourci pour "quote"... *)
 let rec remplacer_quote = function
   | (Mot_regulier "'") :: (Mot_regulier "(") :: reste ->
-    (Mot_regulier "'") :: (Mot_regulier "quote") :: reste
+    (Mot_regulier "(") :: (Mot_regulier "quote") :: (remplacer_quote reste)
       (* Usage le plus courant : '(1 2 3) est remplacé par (quote 1 2 3) *)
       (* NB : je sais que ce n'est pas le seul en common lisp *)
   | (Mot_regulier "'") :: _ ->
@@ -241,7 +241,7 @@ let rec evaluer memoire = function
     begin
       match liste with
       | [] -> List []
-      | (Application _) :: _ 
+      | (Application _) :: _ -> evaluer memoire liste
       | (Valeur _) :: _ -> failwith "Erreur de syntaxe pour un appel de fonction"
       | (Implicite appel) :: args ->
 	match appel with
