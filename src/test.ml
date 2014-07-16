@@ -32,12 +32,41 @@ let rec print = function
   | _ -> failwith "print ne peut afficher qu'un seul élément !"
 ;;
 interprete.add "print" (Function (print)) ;;
-print_endline "Vous avez droit à print !" ;;
-let texte = read_line () ;;
-match interprete.eval texte with
-| List [] -> print_endline "Ok."
-| autre -> 
+let rec read_all fichier =
+  try
+    let ligne = input_line fichier in
+    ligne^"\n"^(read_all fichier)
+  with
+  | End_of_file -> ""
+;;
+match Sys.argv with
+| [|nom_prog|] -> failwith "Vous ne me donnez rien à interpréter, je boude !"
+| [|nom_prog ; nom_fichier|] when Sys.file_exists nom_fichier ->
   begin
-    print_endline "ATTENTION : un résultat a été retourné !" ;
-    ignore (print [autre])
-  end ;;
+    let fichier = open_in nom_fichier in
+    let texte = read_all fichier in
+    close_in fichier ;
+    print_endline "J'interprète : " ;
+    print_endline texte ;
+    match interprete.eval texte with
+    | List [] -> print_endline "Ok."
+    | autre -> 
+      begin
+	  print_endline "ATTENTION : un résultat a été retourné !" ;
+	ignore (print [autre])
+      end 
+  end
+| [| _ ; texte |] ->
+  begin
+    print_endline "J'interprète : " ;
+    print_endline texte ;
+    match interprete.eval texte with
+    | List [] -> print_endline "Ok."
+    | autre -> 
+      begin
+	print_endline "ATTENTION : un résultat a été retourné !" ;
+	ignore (print [autre])
+      end       
+  end
+| _ ->  print_endline "Usage : <nom du programme> nom_de_fichier ou <nom> texte_a_interpreter. Vous avez droit à print."
+;;

@@ -32,7 +32,7 @@ type mot =
 (* La distinction sert à savoir si "(" est la fonction "(" définie par *)
 (* l'utilisateur (!) via "\(" ou une parenthèse ouvrante *)
 | Mot_cite of string
-let lire_mot (chaine : string) (debut : int) : mot * int =
+let rec lire_mot (chaine : string) (debut : int) : mot * int =
   let rec aux i guillemets =
     (* Renvoie le triplet (liste_des_lettres, indice_fin, 
        le_mot_est_il_echappe) *)
@@ -82,7 +82,7 @@ let lire_mot (chaine : string) (debut : int) : mot * int =
       | ' '
       | '\n'
       | '\t' when not commentaire -> avancer (i + 1) false
-      | '\n' when commentaire -> i
+      | '\n' when commentaire -> avancer (i + 1) false
       | _ when commentaire -> avancer (i + 1) true
       | _ -> i
     else i
@@ -101,6 +101,11 @@ let lire_mot (chaine : string) (debut : int) : mot * int =
 	 avancer (i_fin + 1) false) 
       else failwith "Guillemet interrompu."
     (* + 1 : sinon on tombe sur le guillemet fermant *)
+    | ';' when debut + 1 < String.length chaine && chaine.[debut + 1] = ';' ->
+      lire_mot chaine (avancer debut true)
+	(* Sion attaque directement sur un commentaire, il ne faut pas *)
+	(* lire "" ! *)
+
     | _ ->
       let (lettres, i_fin, echappe) = aux debut false in
       if echappe then
