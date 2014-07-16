@@ -248,6 +248,9 @@ let rec evaluer memoire = function
 	| "if" -> evaluer_if memoire liste
 	| "cond" -> evaluer_cond memoire liste
 	| "defun" -> evaluer_defun memoire liste
+	| "and" -> evaluer_and memoire liste
+	| "or" -> evaluer_or memoire liste
+	| "let" -> evaluer_let memoire liste
 	| _ ->
 	  if mem memoire appel then
 	    match find memoire appel with
@@ -314,6 +317,43 @@ and evaluer_defun memoire = function
 	failwith ("Erreur lors de la définition de "^nom^" : "^str)
     end
   | _ -> failwith "defun : erreur de syntaxe"
+and evaluer_and memoire = function
+  | (Implicite "and") :: operandes ->
+    let rec aux = function
+      | [] -> Int 1
+      | test1 :: autres when not (evalb (evaluer memoire [test1])) -> Int 0
+      | _ :: autres -> aux autres
+    in
+    aux operandes
+  | _ -> failwith "Ne peut arriver."
+and evaluer_or memoire = function
+  | (Implicite "or") :: operandes ->
+    let rec aux = function
+      | [] -> Int 0
+      | test1 :: autres when evalb (evaluer memoire [test1]) -> Int 1
+      | _ :: autres -> aux autres
+    in
+    aux operandes
+  | _ -> failwith "Ne peut arriver."
+and evaluer_let memoire = function
+  | [Implicite "let" ; Implicite nom ; valeur] ->
+    (* Version simple *)
+    begin
+      add memoire nom (evaluer memoire [valeur]) ;
+      List []
+    end
+  | (Implicite "let") :: paires ->
+    let rec aux = function
+      | [] -> List []
+      | (Application [Implicite nom ; valeur]) :: reste ->
+	begin
+	  add memoire nom (evaluer memoire [valeur]) ;
+	  aux reste
+	end
+      | _ -> failwith "let : erreur de syntaxe"
+    in
+    aux paires
+  | _ -> failwith "let : erreur de syntaxe"
 ;;
 
 (* IIII) Librairie standard *)
@@ -372,16 +412,27 @@ let fonction_superieurstrict liste =
   | _ -> failwith "La fonction > compare deux nombres."
 ;;
 let fonction_egal liste = 
-  try
-    (fonction_superieur liste) && not (fonction_superieurstrict liste)
-  with
-  | _ -> failwith "La fonction = compare deux nombres."
+  match liste with
+  | [Int x ; Int y]
+    -> x = y
+  | [Float x ; Float y]
+    -> x = y
+  | [List x ; List y]
+    -> x = y
+  | [String x ; String y]
+    -> x = y
+  | [List vide ; Int x]
+  | [Int x ; List vide] when x = 0 -> vide = []
+  | [Int x ; Float y]
+  | [Float y ; Int x] -> y = (float_of_int x)
+  | _ -> failwith "La fonction = compare deux objets de même type 
+(sauf les fonctions), une liste et nil, un entier et un flottant."
 ;;
 let fonction_different liste =
   try
-    (not (fonction_superieur liste)) || (fonction_superieurstrict liste)
+    not (fonction_egal liste)
   with
-  | _ -> failwith "La fonction != compare deux nombres."
+  | _ -> failwith "La fonction /= compare deux objets (sauf les fonctions)."
 ;;
 let fonction_inferieur liste =
   try
@@ -389,15 +440,126 @@ let fonction_inferieur liste =
   with
   | _ -> failwith "La fonction <= compare deux nombres."
 ;;
-(* GROSSE faiblesse : on ne peut pas comparer [] et une autre liste :'( *)
 let fonction_inferieurstrict liste =
   try
     not (fonction_superieur liste)
   with
   | _ -> failwith "La fonction < compare deux nombres."
 ;;
+let fonction_null = function
+  | [List []] -> Int 1
+  | [List _] -> Int 0
+  | _ -> failwith "La fonction null teste la vacuité d'une liste."
+;;
+let fonction_rem = function
+  | [Int n ; Int p] -> Int (n mod p)
+  | [Float i ; Int j] -> Float (mod_float i (float_of_int j))
+  | [Int i ; Float j] -> Float (mod_float (float_of_int i) j)
+  | [Float i ; Float j] -> Float (mod_float i j)
+  | _ -> failwith "(rem n p) renvoie le reste de n / p"
+;;
+let fonction_abs = function
+  | [Int n] -> Int (abs n)
+  | [Float f] -> Float (abs_float f)
+  | _ -> failwith "(abs x) renvoie la valeur absolue de x"
+;;
+let fonction_max = function
+  | [] -> failwith "(max) n'a pas de sens."
+  | premier :: suite ->
+    let rec aux maxtemp = function
+      | [] -> maxtemp
+      | concurrent :: fin when fonction_superieur [maxtemp ; concurrent] ->
+	aux maxtemp fin
+      | concurrent :: fin ->
+	aux concurrent fin
+    in
+    aux premier suite
+;;
+let fonction_min = function
+  | [] -> failwith "(min) n'a pas de sens."
+  | premier :: suite ->
+    let rec aux mintemp = function
+      | [] -> mintemp
+      | concurrent :: fin when fonction_inferieur [mintemp ; concurrent] ->
+	aux mintemp fin
+      | concurrent :: fin ->
+	aux concurrent fin
+    in
+    aux premier suite
+;;
+let fonction_unplus = function
+  | [Int x] -> Int (x + 1)
+  | [Float x] -> Float (x +. 1.)
+  | _ -> failwith "(1+ x) renvoie x + 1"
+;;
+let fonction_unmoins = function
+  | [Int x] -> Int (x - 1)
+  | [Float x] -> Float (x -. 1.)
+  | _ -> failwith "(1- x) renvoie x - 1"
+;;
+let fonction_zerop = function
+  | [Int 0]
+  | [Float 0.]
+  | [List []] -> Int 1
+  | [Int _]
+  | [Float _]
+  | [List _] -> Int 0
+  | _ -> failwith "(zerop k) teste si k=0 ou k=[]"
+;;
+let fonction_plusp = function
+  | [Int k] -> Int (if k > 0 then 1 else 0)
+  | [Float x] -> Int (if x > 0. then 1 else 0)
+  | _ -> failwith "(plusp x) teste si x > 0"
+;;
+let fonction_minusp = function
+  | [Int k] -> Int (if k < 0 then 1 else 0)
+  | [Float x] -> Int (if x < 0. then 1 else 0)
+  | _ -> failwith "(minusp x) teste si x < 0"
+;;
+let fonction_evenp = function
+  | [Int k] -> Int (if k mod 2 = 0 then 1 else 0)
+  | [Float x] -> Int (if mod_float x 2. = 0. then 1 else 0)
+  | _ -> failwith "(evenp x) teste si x = 0 [2]"
+;;
+let fonction_oddp = function
+  | [Int k] -> Int (if k mod 2 <> 0 then 1 else 0)
+  | [Float x] -> Int (if mod_float x 2. <> 0. then 1 else 0)
+  | _ -> failwith "(oddp x) teste si x /= 0 [2]"
+;;
+let fonction_not = function
+  | [Int 0] 
+  | [Float 0.] -> Int 1
+  | [Int _]
+  | [Float _] -> Int 0
+  | _ -> failwith "(not test) renvoie vrai ssi test est faux."
+;;
+let fonction_cons = function
+  | [objet ; List suite] -> List (objet :: suite)
+  | _ -> failwith "(cons head tail) renvoie la liste dont la tête est head
+et la queue tail."
+;;
+let fonction_first = function
+  | [List []] -> failwith "first : liste vide !"
+  | [List (a :: _)] -> a
+  | _ -> failwith "(first list) renvoie la tête de list."
+;;
+let fonction_rest = function
+  | [List []] -> failwith "rest : liste vide !"
+  | [List (_ :: a)] -> List a
+  | _ -> failwith "(rest list) renvoie la queue de la liste."
+;;
+let fonction_consp = function 
+  | [List []] -> Int 0
+  | [List _] -> Int 1
+  | _ -> failwith "(consp list) teste si la liste n'est pas vide."
+;;
+let fonction_list_length = function
+  | [List liste] -> Int (List.length liste)
+  | _ -> failwith "(list-length list) renvoie la taille de la liste."
+;;
 let load_stl memoire =
   add memoire "t" (Int 1) ;
+  add memoire "nil" (Int 1) ;
   add memoire "quote" (Function (fun liste -> List liste)) ;
   add memoire "+" (Function (fonction_plus)) ;
   add memoire "-" (Function (fonction_moins)) ;
@@ -418,9 +580,27 @@ let load_stl memoire =
   add memoire "=" (Function 
 		      (fun liste -> 
 			Int (if fonction_egal liste then 1 else 0))) ;
-  add memoire "!=" (Function 
+  add memoire "/=" (Function 
 		      (fun liste -> 
 			Int (if fonction_different liste then 1 else 0))) ;
+  add memoire "null" (Function (fonction_null)) ;
+  add memoire "rem" (Function (fonction_rem)) ;
+  add memoire "abs" (Function (fonction_abs)) ;
+  add memoire "min" (Function (fonction_min)) ;
+  add memoire "max" (Function (fonction_max)) ;
+  add memoire "1+" (Function (fonction_unplus)) ;
+  add memoire "1-" (Function (fonction_unmoins)) ;
+  add memoire "zerop" (Function (fonction_zerop)) ;
+  add memoire "plusp" (Function (fonction_plusp)) ;
+  add memoire "minusp" (Function (fonction_minusp)) ;
+  add memoire "evenp" (Function (fonction_evenp)) ;
+  add memoire "oddp" (Function (fonction_oddp)) ;
+  add memoire "not" (Function (fonction_not)) ;
+  add memoire "cons" (Function (fonction_cons)) ;
+  add memoire "first" (Function (fonction_first)) ;
+  add memoire "rest" (Function (fonction_rest)) ;
+  add memoire "consp" (Function (fonction_consp)) ;
+  add memoire "list-length" (Function (fonction_list_length)) ;
 ;;
 
 (* V) Interpréteur *)
