@@ -251,6 +251,7 @@ let rec evaluer memoire = function
 	| "and" -> evaluer_and memoire liste
 	| "or" -> evaluer_or memoire liste
 	| "let" -> evaluer_let memoire liste
+	| "lambda" -> evaluer_lambda memoire liste
 	| _ ->
 	  if mem memoire appel then
 	    match find memoire appel with
@@ -317,6 +318,27 @@ and evaluer_defun memoire = function
 	failwith ("Erreur lors de la définition de "^nom^" : "^str)
     end
   | _ -> failwith "defun : erreur de syntaxe"
+and evaluer_lambda memoire = function
+  | (Implicite "lambda") :: (Application liste_args) :: resultat ->
+    begin
+      try
+	let noms = argnames liste_args in
+	let memoire_locale = Hashtbl.create 20 in
+	List.iter (copier_dependances memoire memoire_locale) resultat ;
+	let fonction arguments =
+	  try
+	    lier_args noms arguments memoire_locale ;
+	    evaluer memoire_locale resultat
+	  with
+	  | Failure str ->
+	    failwith ("Erreur lors de l'appel de (fonction anonyme) : "^str)
+	in
+	Function (fonction)
+      with
+      | Failure str ->
+	failwith ("lambda : erreur : "^str)
+    end
+  | _ -> failwith "lambda : erreur de syntaxe."
 and evaluer_and memoire = function
   | (Implicite "and") :: operandes ->
     let rec aux = function
