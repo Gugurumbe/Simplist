@@ -36,4 +36,5 @@
 (let liste '(1 2 3))
 (let liste_rev (revertir liste))
 (let carres (map aux liste_rev))
-(print carres)
+(let bicarres (map (lambda (x) (* x x)) carres))
+(print bicarres)
