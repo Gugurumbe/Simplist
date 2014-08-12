@@ -1,8 +1,8 @@
 (* OASIS_START *)
-(* DO NOT EDIT (digest: 05f1d4ea7bc8cd7fdf89116b495283ac) *)
+(* DO NOT EDIT (digest: 90503c6adcf4b4deb69068a692ad3427) *)
 
-simplist-test - Tests...
-========================
+simplist - A lisp-looking script language
+=========================================
 
 See the file [INSTALL.txt](INSTALL.txt) for building and installation
 instructions.
@@ -10,7 +10,7 @@ instructions.
 Copyright and license
 ---------------------
 
-simplist-test is distributed under the terms of the GNU Lesser General Public
+simplist is distributed under the terms of the GNU Lesser General Public
 License version 2.1 with OCaml linking exception.
 
 (* OASIS_STOP *)

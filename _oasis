@@ -1,13 +1,15 @@
 OASISFormat: 0.4
-Name:        simplist-test
-Version:     0.0
-Synopsis:    Tests...
+Name:        simplist
+Version:     0.1
+Synopsis:    A lisp-looking script language
+Description: Library to read-eval simplist contents
 Authors:     Paul Barbenne
+Maintainers: sarpifeste@gmail.com
 License:     LGPL-2.1 with OCaml linking exception
-Plugins:     META (0.4), StdFiles (0.4)
+Plugins:     META (0.4), StdFiles (0.4), DevFiles (0.4)
 
-Executable test
-  Path:            src
-  BuildTools:      ocamlbuild
-  MainIs:          test.ml
-  CompiledObject:  best  
+Library simplist
+  Path:       src
+  BuildTools: ocamlbuild
+  Modules:    Simplist
+  

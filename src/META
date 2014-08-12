@@ -1,0 +1,11 @@
+# OASIS_START
+# DO NOT EDIT (digest: be47649a10920670146a22a359d3c09a)
+version = "0.1"
+description = "A lisp-looking script language"
+archive(byte) = "simplist.cma"
+archive(byte, plugin) = "simplist.cma"
+archive(native) = "simplist.cmxa"
+archive(native, plugin) = "simplist.cmxs"
+exists_if = "simplist.cma"
+# OASIS_STOP
+

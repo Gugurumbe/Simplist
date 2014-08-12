@@ -1,9 +1,11 @@
 type valeur =
+| Bool of bool
 | Float of float
 | Int of int
 | String of string
 | List of valeur list
 | Function of (valeur list -> valeur)
+| Enregistrement of (string, valeur) Hashtbl.t
 ;;
 (* Toutes les valeurs possibles *)
 type instruction =
@@ -192,12 +194,14 @@ let simparser chaine =
 (* III) Évaluer *)
 (* III)A) Dépendances de "if" et "cond" *)
 let evalb = function
+  | Bool b -> b
   | Float f -> f <> 0.
   | Int i -> i <> 0
   | String str -> failwith ("Ne peut convertir "^str^" en booléen.")
-  | List [] -> false (* Ainsi, nil peut être compris comme faux *)
-  | List _ -> true
+  | List _ -> failwith ("Ne peut convertir une liste en booléen.")
   | Function _ -> failwith "Ne peut convertir une fonction en booléen."
+  | Enregistrement _ -> failwith 
+    "Ne peut convertir un enregistrement en booléen."
 ;;
 (* III)B) Dépendances de "defun" *)
 let rec argnames = function
@@ -213,7 +217,10 @@ let rec copier_dependances source dest = function
   | Implicite k when mem source k ->
     (* Le "mem source k" n'est évidemment pas automatique : on peut définir *)
     (* une nouvelle valeur dans le corps d'une fonction, qu'on réutilisera  *)
-    (* dans cette même fonction. *)
+    (* dans cette même fonction. Exemple : *)
+    (* (defun fonction (truc) *)
+    (*   (defun aux (machin) (+1 machin)) *)
+    (*   (aux truc)) *) (*aux n'est pas défini avant le premier defun *)
     add dest k (find source k)
   | _ -> ()
 ;;
@@ -231,8 +238,30 @@ let lier_args noms valeurs memoire =
   in
   aux (noms, valeurs)
 ;;
+let rec organiser = function
+  | Bool true -> "true"
+  | Bool false -> "false"
+  | Float x -> string_of_float x
+  | Int x -> string_of_int x
+  | String str -> "\""^str^"\""
+  | List liste ->
+    "["^(String.concat " ; " (List.map (organiser) liste))^"]"
+  | Function _ -> "<fonction>"
+  | Enregistrement table ->
+    let liste_champs = 
+      Hashtbl.fold 
+	(fun cle valeur fin -> (cle, valeur) :: fin) table [] in
+    let liste = 
+      List.map 
+	(fun (cle, valeur) -> cle^"="^(organiser valeur))
+	liste_champs
+    in
+    "{"^(String.concat " ; " liste)^"}"
+;;
 (* III)C) Définition de évaluer *)
-let rec evaluer memoire = function
+let rec evaluer 
+    (memoire : (string, valeur) Hashtbl.t) 
+    (fun_dbg : string -> unit) = function
   | [] -> List []
   | [Valeur v] -> v
   | [Implicite str] when mem memoire str -> find memoire str
@@ -241,40 +270,43 @@ let rec evaluer memoire = function
     begin
       match liste with
       | [] -> List []
-      | (Application _) :: _ -> evaluer memoire liste
+      | (Application _) :: _ -> evaluer memoire fun_dbg liste
       | (Valeur _) :: _ -> failwith "Erreur de syntaxe pour un appel de fonction"
       | (Implicite appel) :: args ->
 	match appel with
-	| "if" -> evaluer_if memoire liste
-	| "cond" -> evaluer_cond memoire liste
-	| "defun" -> evaluer_defun memoire liste
-	| "and" -> evaluer_and memoire liste
-	| "or" -> evaluer_or memoire liste
-	| "let" -> evaluer_let memoire liste
-	| "lambda" -> evaluer_lambda memoire liste
+	| "if" -> evaluer_if memoire fun_dbg liste
+	| "cond" -> evaluer_cond memoire fun_dbg liste
+	| "defun" -> evaluer_defun memoire fun_dbg liste
+	| "and" -> evaluer_and memoire fun_dbg liste
+	| "or" -> evaluer_or memoire fun_dbg liste
+	| "let" -> evaluer_let memoire fun_dbg liste
+	| "lambda" -> evaluer_lambda memoire fun_dbg liste
+	| "debug" -> evaluer_debug memoire fun_dbg liste
 	| _ ->
 	  if mem memoire appel then
 	    match find memoire appel with
-	    | Function f -> f (List.map (fun arg -> evaluer memoire [arg]) args)
+	    | Function f -> f 
+	      (List.map (fun arg -> evaluer memoire fun_dbg [arg]) args)
 	    | _ -> failwith (appel^" n'est pas une fonction !")
 	  else failwith ("Function inconnue : "^appel)
     end
   | a :: b ->
-    match evaluer memoire [a] with
-    | List [] -> evaluer memoire b
+    match evaluer memoire fun_dbg [a] with
+    | List [] -> evaluer memoire fun_dbg b
     | _ -> failwith ("Les instructions intermédiaires doivent renvoyer []")
-and evaluer_if memoire = function
-  | [Implicite "if" ; test ; effet ; _] when evalb (evaluer memoire [test]) ->
-    evaluer memoire [effet]
+and evaluer_if memoire fun_dbg = function
+  | [Implicite "if" ; test ; effet ; _] 
+      when evalb (evaluer memoire fun_dbg [test]) ->
+    evaluer memoire fun_dbg [effet]
   | [Implicite "if" ; _ ; _ ; effet] ->
-    evaluer memoire [effet]
+    evaluer memoire fun_dbg [effet]
   | _ -> failwith ("if : erreur de syntaxe")
-and evaluer_cond memoire = function
+and evaluer_cond memoire fun_dbg = function
   | (Implicite "cond") :: paires ->
     let fonction_iteree (fait, resultat) = function
       | Application [test  ; cas]
-	  when (not fait) && evalb (evaluer memoire [test])
-	    -> (true, evaluer memoire [cas])
+	  when (not fait) && evalb (evaluer memoire fun_dbg [test])
+	    -> (true, evaluer memoire fun_dbg [cas])
       | Application _ when not fait ->
 	(false, List [])
       | Application _ -> (true, resultat)
@@ -285,7 +317,7 @@ and evaluer_cond memoire = function
     if ok then resultat
     else failwith "cond : cas non répertorié"
   | _ -> failwith "Ne peut arriver : on appelle cond."
-and evaluer_defun memoire = function
+and evaluer_defun memoire fun_dbg = function
   | (Implicite "defun") :: 
       (Implicite nom) :: 
       (Application liste_args) :: 
@@ -302,11 +334,11 @@ and evaluer_defun memoire = function
 	    if not (!deja_ajoute) 
 	    then begin
 		add memoire_locale nom (Function (fonction)) ;
+		(* ^^^^^^C'est LÀ que le mot-clé "rec" est justifié ^^^^^^ *)
 		deja_ajoute := true
 		  (* À chaque appel récursif ! *)
 	      end ;
-	    (* ^^^^^^C'est LÀ que le mot-clé "rec" est justifié ^^^^^^ *)
-	    evaluer memoire_locale resultat 
+	    evaluer memoire_locale fun_dbg resultat 
 	  with
 	  | Failure str -> 
 	    failwith ("Erreur lors de l'appel de "^nom^" : "^str)
@@ -318,7 +350,7 @@ and evaluer_defun memoire = function
 	failwith ("Erreur lors de la définition de "^nom^" : "^str)
     end
   | _ -> failwith "defun : erreur de syntaxe"
-and evaluer_lambda memoire = function
+and evaluer_lambda memoire fun_dbg = function
   | (Implicite "lambda") :: (Application liste_args) :: resultat ->
     begin
       try
@@ -328,7 +360,7 @@ and evaluer_lambda memoire = function
 	let fonction arguments =
 	  try
 	    lier_args noms arguments memoire_locale ;
-	    evaluer memoire_locale resultat
+	    evaluer memoire_locale fun_dbg resultat
 	  with
 	  | Failure str ->
 	    failwith ("Erreur lors de l'appel de (fonction anonyme) : "^str)
@@ -339,29 +371,30 @@ and evaluer_lambda memoire = function
 	failwith ("lambda : erreur : "^str)
     end
   | _ -> failwith "lambda : erreur de syntaxe."
-and evaluer_and memoire = function
+and evaluer_and memoire fun_dbg = function
   | (Implicite "and") :: operandes ->
     let rec aux = function
-      | [] -> Int 1
-      | test1 :: autres when not (evalb (evaluer memoire [test1])) -> Int 0
+      | [] -> Bool true
+      | test1 :: autres 
+	  when not (evalb (evaluer memoire fun_dbg [test1])) -> Bool false
       | _ :: autres -> aux autres
     in
     aux operandes
   | _ -> failwith "Ne peut arriver."
-and evaluer_or memoire = function
+and evaluer_or memoire fun_dbg = function
   | (Implicite "or") :: operandes ->
     let rec aux = function
-      | [] -> Int 0
-      | test1 :: autres when evalb (evaluer memoire [test1]) -> Int 1
+      | [] -> Bool false
+      | test1 :: autres when evalb (evaluer memoire fun_dbg [test1]) -> Bool true
       | _ :: autres -> aux autres
     in
     aux operandes
   | _ -> failwith "Ne peut arriver."
-and evaluer_let memoire = function
+and evaluer_let memoire fun_dbg = function
   | [Implicite "let" ; Implicite nom ; valeur] ->
     (* Version simple *)
     begin
-      add memoire nom (evaluer memoire [valeur]) ;
+      add memoire nom (evaluer memoire fun_dbg [valeur]) ;
       List []
     end
   | (Implicite "let") :: paires ->
@@ -369,16 +402,45 @@ and evaluer_let memoire = function
       | [] -> List []
       | (Application [Implicite nom ; valeur]) :: reste ->
 	begin
-	  add memoire nom (evaluer memoire [valeur]) ;
+	  add memoire nom (evaluer memoire fun_dbg [valeur]) ;
 	  aux reste
 	end
       | _ -> failwith "let : erreur de syntaxe"
     in
     aux paires
   | _ -> failwith "let : erreur de syntaxe"
+and evaluer_debug memoire fun_dbg = function
+  | (Implicite "debug") :: liste_valeurs ->
+    begin
+      List.iter 
+	(fun truc -> 
+	  fun_dbg (organiser (evaluer memoire fun_dbg [truc]))) liste_valeurs ;
+      List []
+    end
+  | _ -> failwith "debug : erreur de syntaxe"
 ;;
 
 (* IIII) Librairie standard *)
+let fonction_get = function
+  | [Enregistrement table ; String champ]
+  | [String champ ; Enregistrement table] when Hashtbl.mem table champ ->
+    Hashtbl.find table champ
+  | [Enregistrement _ ; String _]
+  | [String _ ; Enregistrement _] -> failwith "Enregistrement incomplet."
+  | _ -> failwith 
+    ("(get enreg champ) ou (get champ enreg) renvoie la valeur du champ"
+     ^" de l'enregistrement.")
+;;
+let fonction_reg liste =
+  let table = Hashtbl.create (List.length liste) in
+  let aux = function
+    | List [String nom ; valeur] -> Hashtbl.add table nom valeur
+    | _ -> failwith ("Mauvais usage de reg. Usage : "^
+			"(reg '(\"toto\" valeur_toto) '(\"tata\" valeur_tata))")
+  in
+  List.iter (aux) liste ;
+  Enregistrement table
+;;
 let fonction_plus liste =
   let aux x y =
     match (x, y) with
@@ -418,8 +480,8 @@ let fonction_diviser = function
 let fonction_superieur liste = 
   try
     match fonction_moins liste with
-    | Int x -> x >= 0
-    | Float x -> x >= 0.
+    | Int x -> Bool (x >= 0)
+    | Float x -> Bool (x >= 0.)
     | _ -> failwith "La fonction >= compare deux nombres."
   with
   | _ -> failwith "La fonction >= compare deux nombres."
@@ -427,8 +489,8 @@ let fonction_superieur liste =
 let fonction_superieurstrict liste =
   try
     match fonction_moins liste with
-    | Int x -> x > 0
-    | Float x -> x > 0.
+    | Int x -> Bool (x > 0)
+    | Float x -> Bool (x > 0.)
     | _ -> failwith "La fonction > compare deux nombres."
   with
   | _ -> failwith "La fonction > compare deux nombres."
@@ -436,41 +498,45 @@ let fonction_superieurstrict liste =
 let fonction_egal liste = 
   match liste with
   | [Int x ; Int y]
-    -> x = y
+    -> Bool (x = y)
   | [Float x ; Float y]
-    -> x = y
+    -> Bool (x = y)
   | [List x ; List y]
-    -> x = y
+    -> Bool (x = y)
   | [String x ; String y]
-    -> x = y
-  | [List vide ; Int x]
-  | [Int x ; List vide] when x = 0 -> vide = []
+    -> Bool (x = y)
+  | [List vide ; Bool false]
+  | [Bool false ; List vide] -> Bool (vide = [])
   | [Int x ; Float y]
-  | [Float y ; Int x] -> y = (float_of_int x)
+  | [Float y ; Int x] -> Bool (y = (float_of_int x))
   | _ -> failwith "La fonction = compare deux objets de même type 
 (sauf les fonctions), une liste et nil, un entier et un flottant."
 ;;
+let fonction_not = function
+  | [Bool t] -> Bool (not t)
+  | _ -> failwith "Mauvais usage de la fonction not"
+;;
 let fonction_different liste =
   try
-    not (fonction_egal liste)
+    fonction_not [fonction_egal liste]
   with
   | _ -> failwith "La fonction /= compare deux objets (sauf les fonctions)."
 ;;
 let fonction_inferieur liste =
   try
-    not (fonction_superieurstrict liste)
+    fonction_not [fonction_superieurstrict liste]
   with
   | _ -> failwith "La fonction <= compare deux nombres."
 ;;
 let fonction_inferieurstrict liste =
   try
-    not (fonction_superieur liste)
+    fonction_not [fonction_superieur liste]
   with
   | _ -> failwith "La fonction < compare deux nombres."
 ;;
 let fonction_null = function
-  | [List []] -> Int 1
-  | [List _] -> Int 0
+  | [List []] -> Bool true
+  | [List _] -> Bool false
   | _ -> failwith "La fonction null teste la vacuité d'une liste."
 ;;
 let fonction_rem = function
@@ -490,7 +556,8 @@ let fonction_max = function
   | premier :: suite ->
     let rec aux maxtemp = function
       | [] -> maxtemp
-      | concurrent :: fin when fonction_superieur [maxtemp ; concurrent] ->
+      | concurrent :: fin 
+	  when fonction_superieur [maxtemp ; concurrent] = Bool true ->
 	aux maxtemp fin
       | concurrent :: fin ->
 	aux concurrent fin
@@ -502,7 +569,8 @@ let fonction_min = function
   | premier :: suite ->
     let rec aux mintemp = function
       | [] -> mintemp
-      | concurrent :: fin when fonction_inferieur [mintemp ; concurrent] ->
+      | concurrent :: fin 
+	  when fonction_inferieur [mintemp ; concurrent] = Bool true ->
 	aux mintemp fin
       | concurrent :: fin ->
 	aux concurrent fin
@@ -522,38 +590,31 @@ let fonction_unmoins = function
 let fonction_zerop = function
   | [Int 0]
   | [Float 0.]
-  | [List []] -> Int 1
+  | [List []] -> Bool true
   | [Int _]
   | [Float _]
-  | [List _] -> Int 0
+  | [List _] -> Bool false
   | _ -> failwith "(zerop k) teste si k=0 ou k=[]"
 ;;
 let fonction_plusp = function
-  | [Int k] -> Int (if k > 0 then 1 else 0)
-  | [Float x] -> Int (if x > 0. then 1 else 0)
+  | [Int k] -> Bool (k > 0)
+  | [Float x] -> Bool (x > 0.)
   | _ -> failwith "(plusp x) teste si x > 0"
 ;;
 let fonction_minusp = function
-  | [Int k] -> Int (if k < 0 then 1 else 0)
-  | [Float x] -> Int (if x < 0. then 1 else 0)
+  | [Int k] -> Bool (k < 0)
+  | [Float x] -> Bool (x < 0.)
   | _ -> failwith "(minusp x) teste si x < 0"
 ;;
 let fonction_evenp = function
-  | [Int k] -> Int (if k mod 2 = 0 then 1 else 0)
-  | [Float x] -> Int (if mod_float x 2. = 0. then 1 else 0)
+  | [Int k] -> Bool (k mod 2 = 0)
+  | [Float x] -> Bool (mod_float x 2. = 0.)
   | _ -> failwith "(evenp x) teste si x = 0 [2]"
 ;;
 let fonction_oddp = function
-  | [Int k] -> Int (if k mod 2 <> 0 then 1 else 0)
-  | [Float x] -> Int (if mod_float x 2. <> 0. then 1 else 0)
+  | [Int k] -> Bool (k mod 2 <> 0)
+  | [Float x] -> Bool (mod_float x 2. <> 0.)
   | _ -> failwith "(oddp x) teste si x /= 0 [2]"
-;;
-let fonction_not = function
-  | [Int 0] 
-  | [Float 0.] -> Int 1
-  | [Int _]
-  | [Float _] -> Int 0
-  | _ -> failwith "(not test) renvoie vrai ssi test est faux."
 ;;
 let fonction_cons = function
   | [objet ; List suite] -> List (objet :: suite)
@@ -571,8 +632,8 @@ let fonction_rest = function
   | _ -> failwith "(rest list) renvoie la queue de la liste."
 ;;
 let fonction_consp = function 
-  | [List []] -> Int 0
-  | [List _] -> Int 1
+  | [List []] -> Bool false
+  | [List _] -> Bool true
   | _ -> failwith "(consp list) teste si la liste n'est pas vide."
 ;;
 let fonction_list_length = function
@@ -580,48 +641,38 @@ let fonction_list_length = function
   | _ -> failwith "(list-length list) renvoie la taille de la liste."
 ;;
 let load_stl memoire =
-  add memoire "t" (Int 1) ;
-  add memoire "nil" (Int 1) ;
-  add memoire "quote" (Function (fun liste -> List liste)) ;
-  add memoire "+" (Function (fonction_plus)) ;
-  add memoire "-" (Function (fonction_moins)) ;
-  add memoire "*" (Function (fonction_fois)) ;
-  add memoire "/" (Function (fonction_diviser)) ;
-  add memoire ">=" (Function 
-		      (fun liste -> 
-			Int (if fonction_superieur liste then 1 else 0))) ;
-  add memoire ">" (Function 
-		      (fun liste -> 
-			Int (if fonction_superieurstrict liste then 1 else 0))) ;
-  add memoire "<=" (Function 
-		      (fun liste -> 
-			Int (if fonction_inferieur liste then 1 else 0))) ;
-  add memoire "<" (Function 
-		      (fun liste -> 
-			Int (if fonction_inferieurstrict liste then 1 else 0))) ;
-  add memoire "=" (Function 
-		      (fun liste -> 
-			Int (if fonction_egal liste then 1 else 0))) ;
-  add memoire "/=" (Function 
-		      (fun liste -> 
-			Int (if fonction_different liste then 1 else 0))) ;
-  add memoire "null" (Function (fonction_null)) ;
-  add memoire "rem" (Function (fonction_rem)) ;
-  add memoire "abs" (Function (fonction_abs)) ;
-  add memoire "min" (Function (fonction_min)) ;
-  add memoire "max" (Function (fonction_max)) ;
-  add memoire "1+" (Function (fonction_unplus)) ;
-  add memoire "1-" (Function (fonction_unmoins)) ;
-  add memoire "zerop" (Function (fonction_zerop)) ;
-  add memoire "plusp" (Function (fonction_plusp)) ;
-  add memoire "minusp" (Function (fonction_minusp)) ;
-  add memoire "evenp" (Function (fonction_evenp)) ;
-  add memoire "oddp" (Function (fonction_oddp)) ;
-  add memoire "not" (Function (fonction_not)) ;
-  add memoire "cons" (Function (fonction_cons)) ;
-  add memoire "first" (Function (fonction_first)) ;
-  add memoire "rest" (Function (fonction_rest)) ;
-  add memoire "consp" (Function (fonction_consp)) ;
+  add memoire "get"         (Function (fonction_get)) ;
+  add memoire "reg"         (Function (fonction_reg)) ;
+  add memoire "t"           (Bool true) ;
+  add memoire "nil"         (Bool false) ;
+  add memoire "quote"       (Function (fun liste -> List liste)) ;
+  add memoire "+"           (Function (fonction_plus)) ;
+  add memoire "-"           (Function (fonction_moins)) ;
+  add memoire "*"           (Function (fonction_fois)) ;
+  add memoire "/"           (Function (fonction_diviser)) ;
+  add memoire ">="          (Function (fonction_superieur)) ;
+  add memoire ">"           (Function (fonction_superieurstrict)) ;
+  add memoire "<="          (Function (fonction_inferieur)) ;
+  add memoire "<"           (Function (fonction_inferieurstrict)) ;
+  add memoire "="           (Function (fonction_egal)) ;
+  add memoire "/="          (Function (fonction_different)) ;
+  add memoire "null"        (Function (fonction_null)) ;
+  add memoire "rem"         (Function (fonction_rem)) ;
+  add memoire "abs"         (Function (fonction_abs)) ;
+  add memoire "min"         (Function (fonction_min)) ;
+  add memoire "max"         (Function (fonction_max)) ;
+  add memoire "1+"          (Function (fonction_unplus)) ;
+  add memoire "1-"          (Function (fonction_unmoins)) ;
+  add memoire "zerop"       (Function (fonction_zerop)) ;
+  add memoire "plusp"       (Function (fonction_plusp)) ;
+  add memoire "minusp"      (Function (fonction_minusp)) ;
+  add memoire "evenp"       (Function (fonction_evenp)) ;
+  add memoire "oddp"        (Function (fonction_oddp)) ;
+  add memoire "not"         (Function (fonction_not)) ;
+  add memoire "cons"        (Function (fonction_cons)) ;
+  add memoire "first"       (Function (fonction_first)) ;
+  add memoire "rest"        (Function (fonction_rest)) ;
+  add memoire "consp"       (Function (fonction_consp)) ;
   add memoire "list-length" (Function (fonction_list_length)) ;
 ;;
 
@@ -632,11 +683,11 @@ type interprete =
   eval : string -> valeur ;
   add : string -> valeur -> unit
 } ;;
-let make_interp () =
+let make_interp fun_dbg =
   let memoire = make_mem 100 in
   load_stl memoire ;
   let interpreter chaine =
-    evaluer memoire (simparser chaine)
+    evaluer memoire fun_dbg (simparser chaine)
   in
   let ajouter nom valeur =
     add memoire nom valeur

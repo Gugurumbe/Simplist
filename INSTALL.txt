@@ -1,7 +1,7 @@
 (* OASIS_START *)
-(* DO NOT EDIT (digest: 6ce5afbf9cca2909a05c5caa06aaa5cd) *)
+(* DO NOT EDIT (digest: 2b89eae02b53a272f05805611eec2051) *)
 
-This is the INSTALL file for the simplist-test distribution.
+This is the INSTALL file for the simplist distribution.
 
 This package uses OASIS to generate its build system. See section OASIS for
 full information.
